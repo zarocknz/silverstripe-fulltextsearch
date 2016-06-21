@@ -1,3 +1,5 @@
+# HACKED to work with Solr 5 and 6, don't use, needs to be done propperly.
+
 # FullTextSearch module
 
 [![Build Status](https://secure.travis-ci.org/silverstripe-labs/silverstripe-fulltextsearch.png?branch=master)](http://travis-ci.org/silverstripe-labs/silverstripe-fulltextsearch)
