@@ -36,6 +36,7 @@ class Solr
      *   When mode == SolrConfigStore_WebDAV or webdav (indexes should stored on a remote Solr server via webdav)
      *      auth (default: none) - A username:password pair string to use to auth against the webdav server
      *      path (default: /solrindex) - The suburl on the solr host that is set up to accept index configurations via webdav
+     *      port (default: none) - The port for WebDAV if different from the Solr port
      *      remotepath - The path that the Solr server will read the index configurations from
      */
     protected static $solr_options = array();
@@ -226,6 +227,8 @@ class Solr_Configure extends Solr_BuildTask
     {
         parent::run($request);
 
+        $this->extend('updateBeforeSolrConfigureTask', $request);
+
         // Find the IndexStore handler, which will handle uploading config files to Solr
         $store = $this->getSolrConfigStore();
         $indexes = Solr::get_indexes();
@@ -239,6 +242,12 @@ class Solr_Configure extends Solr_BuildTask
                     ->error("Failure: " . $e->getMessage());
             }
         }
+
+        if (isset($e)) {
+            exit(1);
+        }
+
+        $this->extend('updateAfterSolrConfigureTask', $request);
     }
 
     /**
@@ -341,10 +350,14 @@ class Solr_Reindex extends Solr_BuildTask
     {
         parent::run($request);
 
+        $this->extend('updateBeforeSolrReindexTask', $request);
+
         // Reset state
         $originalState = SearchVariant::current_state();
         $this->doReindex($request);
         SearchVariant::activate_state($originalState);
+
+        $this->extend('updateAfterSolrReindexTask', $request);
     }
 
     /**

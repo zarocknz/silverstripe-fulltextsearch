@@ -25,16 +25,16 @@ as the SilverStripe webhost.
 
 ## Installation (Local)
 
-#### Get the Solr server
+### Get the Solr server
 
 composer require silverstripe/fulltextsearch-localsolr 4.5.1.x-dev
 
-#### Start the server (via CLI, in a separate terminal window or background process)
+### Start the server (via CLI, in a separate terminal window or background process)
 
 	cd fulltextsearch-localsolr/server/
 	java -jar start.jar
 
-#### Configure the fulltextsearch Solr component to use the local server
+### Configure the fulltextsearch Solr component to use the local server
 
 Configure Solr in file mode. The 'path' directory has to be writeable
 by the user the Solr search server is started with (see below).
@@ -49,13 +49,37 @@ by the user the Solr search server is started with (see below).
 		)
 	));
 
+All possible parameters incl optional ones with example values:
+
+	// File: mysite/_config.php:
+	<?php
+	Solr::configure_server(array(
+		'host' => 'localhost', // default: localhost | The host or IP Solr is listening on
+		'port' => '8983', // default: 8983 | The port Solr is listening on
+		'path' => '/solr' // default: /solr | The suburl the solr service is available on
+		'version' => '4' // default: 4 | Solr server version - currently only 3 and 4 supported
+		'service' => 'Solr4Service' // default: depends on version, Solr3Service for 3, Solr4Service for 4 | the class that provides actual communcation to the Solr server
+		'extraspath' => BASE_PATH .'/fulltextsearch/conf/solr/4/extras/' // default: <basefolder>/fulltextsearch/conf/solr/{version}/extras/ | Absolute path to the folder containing templates which are used for generating the schema and field definitions.
+		'templates' => BASE_PATH . '/fulltextsearch/conf/solr/4/templates/' // default: <basefolder>/fulltextsearch/conf/solr/{version}/templates/ | Absolute path to the configuration default files, e.g. solrconfig.xml
+		'indexstore' => array(
+			'mode' => 'file', // a classname which implements SolrConfigStore, or 'file' or 'webdav'
+			'path' => BASE_PATH . '/.solr' // The (locally accessible) path to write the index configurations to OR The suburl on the solr host that is set up to accept index configurations via webdav
+			'remotepath' => '/opt/solr/config' // default (file mode only): same as 'path' above | The path that the Solr server will read the index configurations from
+			'auth' => 'solr:solr' // default: none | Webdav only - A username:password pair string to use to auth against the webdav server
+			'port' => '80' // default: same as solr port | The port for WebDAV if different from the Solr port 
+ 		)
+	));
+
+
 Note: We recommend to put the `indexstore.path` directory outside of the webroot.
 If you place it inside of the webroot (as shown in the example),
 please ensure its contents are not accessible through the webserver.
 This can be achieved by server configuration, or (in most configurations)
 also by marking the folder as hidden via a "dot" prefix.
 
-#### Create an index
+## Configuration
+
+### Create an index
 
 	// File: mysite/code/MyIndex.php:
 	<?php
@@ -66,7 +90,10 @@ also by marking the folder as hidden via a "dot" prefix.
 		}
 	}
 
-#### Initialize the configuration (via CLI)
+### Create the index schema
+
+The PHP-based index definition is an abstraction layer for the actual Solr XML configuration.
+In order to create or update it, you need to run the `Solr_Configure` task.
 
 	sake dev/tasks/Solr_Configure
 
@@ -76,11 +103,14 @@ Based on the sample configuration above, this command will do the following:
 - Copy configuration files from `fulltextsearch/conf/extras/` to `<BASE_PATH>/.solr/MyIndex/conf`
 - Generate a `schema.xml`, and place it it in `<BASE_PATH>/.solr/MyIndex/conf`
 
-If you call the `Solr_configure` task with an existing index folder,
+If you call the task with an existing index folder,
 it will overwrite all files from their default locations, 
 regenerate the `schema.xml`, and ask Solr to reload the configuration.
 
-## Usage
+You can use the same command for updating an existing schema,
+which will automatically apply without requiring a Solr server restart.
+
+### Reindex
 
 After configuring Solr, you have the option to add your existing
 content to its indices. Run the following command:
@@ -115,6 +145,13 @@ Note: The Solr indexes will be stored as binary files inside your SilverStripe p
 You can also copy the `thirdparty/` solr directory somewhere else,
 just set the `path` value in `mysite/_config.php` to point to the new location.
 
+You can also run the reindex task through a web request.
+By default, the web request won't receive any feedback while its running.
+Depending on your PHP and web server configuration,
+the web request itself might time out, but the reindex continues anyway.
+This is possible because the actual index operations are run as separate
+PHP sub-processes inside the main web request.
+
 ### File-based configuration (solrconfig.xml etc)
 
 Many aspects of Solr are configured outside of the `schema.xml` file
@@ -133,7 +170,7 @@ and tell Solr to use this folder with the `extraspath` configuration setting.
 		'extraspath' => Director::baseFolder() . '/mysite/data/solr/',
 	));
 
-Please run the `Solr_configure` task for the changes to take effect.
+Please run the `Solr_Configure` task for the changes to take effect.
 
 Note: You can also define those on an index-by-index basis by
 implementing `SolrIndex->getExtrasPath()`.
@@ -154,6 +191,31 @@ from a new file `mysite/solr/templates/types.ss` instead:
 			return $this->renderWith(Director::baseFolder() . '/mysite/solr/templates/types.ss');
 		}
 	}
+    
+#### Searching for words containing numbers
+
+By default, the fulltextmodule is configured to split words containing numbers into multiple tokens. For example, the word “A1” would be interpreted as “A” “1”; since “a” is a common stopword, the term “A1” will be excluded from search. 
+
+To allow searches on words containing numeric tokens, you'll need to update your overloaded template to change the behaviour of the  WordDelimiterFilterFactory.  Each instance of `<filter class="solr.WordDelimiterFilterFactory">` needs to include the following attributes and values:
+
+* add splitOnNumerics="0" on all WordDelimiterFilterFactory fields
+* change catenateOnNumbers="1" on all WordDelimiterFilterFactory fields
+
+Update your index to point to your overloaded template using the method described above.
+
+#### Searching for macrons and other Unicode characters
+
+The “ASCIIFoldingFilterFactory” filter converts alphabetic, numeric, and symbolic Unicode characters which are not in the Basic Latin Unicode block (the first 127 ASCII characters) to their ASCII equivalents, if one exists. 
+
+Find the fields in your overloaded `types.ss` that you want to enable this behaviour in. EG:
+
+    <fieldType name="htmltext" class="solr.TextField" ... >
+
+Add the following to both its index analyzer and query analyzer records.
+
+    <filter class="solr.ASCIIFoldingFilterFactory"/>
+
+Update your index to point to your overloaded template using the method described above.
 
 ### Spell Checking ("Did you mean...")
 
@@ -431,14 +493,70 @@ Create a custom `solrconfig.xml` (see "File-based configuration").
 Add the following XML configuration.
 
 	<lib dir="./contrib/extraction/lib/" />
-  <lib dir="./dist" />
+	<lib dir="./dist" />
 
 Now apply the configuration:
 
-	sake dev/tasks/Solr_configure
+	sake dev/tasks/Solr_Configure
 
 Now you can use Solr text extraction either directly through the HTTP API,
 or indirectly through the ["textextraction" module](https://github.com/silverstripe-labs/silverstripe-textextraction).
+
+## Adding DataObject classes to Solr search
+
+If you create a class that extends `DataObject` (and not `Page`) then it won't be automatically added to the search
+index. You'll have to make some changes to add it in.
+
+So, let's take an example of `StaffMember`:
+
+	:::php
+	<?php
+	class StaffMember extends DataObject {
+		private static $db = array(
+			'Name' => 'Varchar(255)',
+			'Abstract' => 'Text',
+			'PhoneNumber' => 'Varchar(50)'
+		);
+		
+		public function Link($action = 'show') {
+			return Controller::join_links('my-controller', $action, $this->ID);
+		}
+		
+		public function getShowInSearch() {
+			return 1;
+		}
+	}
+
+This `DataObject` class has the minimum code necessary to allow it to be viewed in the site search.
+
+`Link()` will return a URL for where a user goes to view the data in more detail in the search results.
+`Name` will be used as the result title, and `Abstract` the summary of the staff member which will show under the
+search result title.
+`getShowInSearch` is required to get the record to show in search, since all results are filtered by `ShowInSearch`.
+
+So with that, let's create a new class called `MySolrSearchIndex`:
+
+	:::php
+	<?php
+	class MySolrSearchIndex extends SolrIndex {
+		
+		public function init() {
+			$this->addClass('SiteTree');
+			$this->addClass('StaffMember');
+			
+			$this->addAllFulltextFields();
+			$this->addFilterField('ShowInSearch');
+		}
+		
+	}
+
+This is a copy/paste of the existing configuration but with the addition of `StaffMember`.
+
+Once you've created the above classes and run `flush=1`, access `dev/tasks/Solr_Configure` and `dev/tasks/Solr_Reindex`
+to tell Solr about the new index you've just created. This will add `StaffMember` and the text fields it has to the
+index. Now when you search on the site using `MySolrSearchIndex->search()`, 
+the `StaffMember` results will show alongside normal `Page` results.
+
 
 ## Debugging
 
